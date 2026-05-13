@@ -89,6 +89,10 @@ var ErrCloseSent = errors.New("websocket: close sent")
 // read limit set for the connection.
 var ErrReadLimit = errors.New("websocket: read limit exceeded")
 
+func useMask(c *Conn) bool {
+	return false
+}
+
 // netError satisfies the net Error interface.
 type netError struct {
 	msg       string
@@ -422,20 +426,20 @@ func (c *Conn) WriteControl(messageType int, data []byte, deadline time.Time) er
 
 	b0 := byte(messageType) | finalBit
 	b1 := byte(len(data))
-	if !c.isServer {
+	if useMask(c) {
 		b1 |= maskBit
 	}
 
 	buf := make([]byte, 0, maxFrameHeaderSize+maxControlFramePayloadSize)
 	buf = append(buf, b0, b1)
 
-	if c.isServer {
-		buf = append(buf, data...)
-	} else {
+	if useMask(c) {
 		key := newMaskKey()
 		buf = append(buf, key[:]...)
 		buf = append(buf, data...)
 		maskBytes(key, 0, buf[6:])
+	} else {
+		buf = append(buf, data...)
 	}
 
 	if deadline.IsZero() {
@@ -867,7 +871,7 @@ func (c *Conn) advanceFrame() (int, error) {
 		errors = append(errors, "bad opcode "+strconv.Itoa(frameType))
 	}
 
-	if mask != c.isServer {
+	if useMask(c) && mask != c.isServer {
 		errors = append(errors, "bad MASK")
 	}
 
@@ -948,7 +952,7 @@ func (c *Conn) advanceFrame() (int, error) {
 		if err != nil {
 			return noFrame, err
 		}
-		if c.isServer {
+		if useMask(c) {
 			maskBytes(c.readMaskKey, 0, payload)
 		}
 	}
